@@ -251,11 +251,11 @@ var _ = _self.Prism = {
 				_.hooks.run('complete', env);
 			};
 
-			worker.postMessage(JSON.stringify({
-				language: env.language,
-				code: env.code,
+			worker.postMessage({
+				fn: "highlight",
+				args: [env.code, env.grammar, env.language],
 				immediateClose: true
-			}));
+			});
 		}
 		else {
 			env.highlightedCode = _.highlight(env.code, env.grammar, env.language);
@@ -411,22 +411,37 @@ var _ = _self.Prism = {
 		}
 	},
 
-	tokenize: function(text, grammar, language) {
-		var strarr = [text];
+	tokenize: function(text, grammar, async, callback) {
+		if (async && _self.Worker) {
+			var worker = new Worker(_.filename);
 
-		var rest = grammar.rest;
+			worker.onmessage = function(evt) {
+				callback && callback.call(null, evt.data);
+			};
 
-		if (rest) {
-			for (var token in rest) {
-				grammar[token] = rest[token];
+			worker.postMessage({
+				fn: "tokenize",
+				args: [text, grammar],
+				immediateClose: true
+			});
+		}
+		else {
+			var strarr = [text];
+
+			var rest = grammar.rest;
+
+			if (rest) {
+				for (var token in rest) {
+					grammar[token] = rest[token];
+				}
+
+				delete grammar.rest;
 			}
 
-			delete grammar.rest;
+			_.matchGrammar(text, strarr, grammar, 0, 0, false);
+
+			return strarr;
 		}
-
-		_.matchGrammar(text, strarr, grammar, 0, 0, false);
-
-		return strarr;
 	},
 
 	hooks: {
@@ -508,12 +523,12 @@ if (!_self.document) {
 	if (!_.disableWorkerMessageHandler) {
 		// In worker
 		_self.addEventListener('message', function (evt) {
-			var message = JSON.parse(evt.data),
-				lang = message.language,
-				code = message.code,
+			var message = evt.data,
+				fn = message.fn,
+				args = message.args,
 				immediateClose = message.immediateClose;
 
-			_self.postMessage(_.highlight(code, _.languages[lang], lang));
+			_self.postMessage(_[fn].apply(_, args));
 			if (immediateClose) {
 				_self.close();
 			}
