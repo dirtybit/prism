@@ -79,6 +79,35 @@ var _ = _self.Prism = {
 			}
 
 			return o;
+		},
+
+		flattenToken: function (token, type) {
+			if (typeof token === 'string') {
+				var parts = token.split(/(\n)/).filter(Boolean);
+
+				if (type) {
+					return parts.map(function (tk) {
+						if (tk === "\n") {
+							return tk
+						}
+
+						return new _.Token(type, tk);
+					});
+				}
+
+				return parts;
+			}
+
+			if (typeof token.content === "string") {
+				return _.util.flattenToken(token.content, token.type);
+			}
+
+			var tokens = [];
+			token.content.forEach(function (tk) {
+				tokens = tokens.concat(_.util.flattenToken(tk, token.type));
+			})
+
+			return tokens;
 		}
 	},
 
@@ -411,8 +440,26 @@ var _ = _self.Prism = {
 		}
 	},
 
-	tokenize: function(text, grammar, async, callback) {
-		if (async && _self.Worker) {
+	tokenize: function(text, grammar) {
+		var strarr = [text];
+
+		var rest = grammar.rest;
+
+		if (rest) {
+			for (var token in rest) {
+				grammar[token] = rest[token];
+			}
+
+			delete grammar.rest;
+		}
+
+		_.matchGrammar(text, strarr, grammar, 0, 0, false);
+
+		return strarr;
+	},
+
+	tokenizeFlat: function(text, grammar, isAsync, callback) {
+		if (isAsync && _self.Worker) {
 			var worker = new Worker(_.filename);
 
 			worker.onmessage = function(evt) {
@@ -420,27 +467,20 @@ var _ = _self.Prism = {
 			};
 
 			worker.postMessage({
-				fn: "tokenize",
+				fn: "tokenizeFlat",
 				args: [text, grammar],
 				immediateClose: true
 			});
 		}
 		else {
-			var strarr = [text];
+			var strarr = _.tokenize(text, grammar);
+			var tokens = [];
 
-			var rest = grammar.rest;
+			strarr.forEach(function (token) {
+				tokens = tokens.concat(_.util.flattenToken(token));
+			});
 
-			if (rest) {
-				for (var token in rest) {
-					grammar[token] = rest[token];
-				}
-
-				delete grammar.rest;
-			}
-
-			_.matchGrammar(text, strarr, grammar, 0, 0, false);
-
-			return strarr;
+			return tokens;
 		}
 	},
 
